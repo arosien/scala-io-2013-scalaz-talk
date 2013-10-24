@@ -4,7 +4,7 @@
   Adam Rosien <br/>
   <code>adam@rosien.net</code> <br/>
   <br/>
-  <code>@arosien #scalaIO</code>
+  <code>@arosien #ScalaIO</code>
 </div>
 
 ![](img/logo-scalaio-small.png)
@@ -291,9 +291,44 @@ You can do the checks in the constructor:
 
 But this has downsides:
 
- * Validation failures happen as late as possible.
- * You only get one failure, but more than one violation may be happening.
+ * Validation failures happen as **late** as possible.
+ * You only get one failure, but **more than one violation** may be happening.
  * You have to catch exceptions, which is just **tedious**.
+
+---
+
+# Domain Validation
+
+Errors in Scala can be represented in many ways:
+
+    !scala
+    Option[A] :=
+      Some[A](a: A)    | None
+
+    Either[A, B] :=
+      Right[B](b: B)   | Left[A](a: A)
+
+    Try[A] :=
+      Success[A](a: A) | Failure[A](ex: Throwable)
+
+---
+
+# Domain Validation
+
+Errors in Scala can be represented in many ways:
+
+    !scala
+    Option[A] :=
+      Some[A](a: A)    | None
+
+    Either[A, B] :=
+      Right[B](b: B)   | Left[A](a: A)
+
+    Try[A] :=
+      Success[A](a: A) | Failure[A](ex: Throwable)
+
+    Validation[E, A] :=
+      Success[A](a: A) | Failure[E](e: E)
 
 ---
 
@@ -309,21 +344,25 @@ But this has downsides:
 
     // handle failure and success
     version.fold(
-      fail: ???        => ...,
-      success: Version => ...)
+      (fail: ???)        => ...,
+      (success: Version) => ...)
 
 ---
 
 # Domain Validation
 
-Using `scalaz`, a `Validation` can either be a `Success` or `Failure`:
+Using `scalaz`, a `Validation` can either be a **`Success`** or **`Failure`**:
 
     !scala
     Version.validate(1, 2)
     // Success(Version(1, 2))
+    // ^^^^^^^
 
     Version.validate(1, -1)
     // Failure(NonEmptyList("digit must be >= 0"))
+    // ^^^^^^^    ^
+    //            ^
+    //            to be defined
 
 ---
 
@@ -349,17 +388,19 @@ Model the `>= 0` constraint:
 
 # Domain Validation
 
-Combine constraints:
+**Combine** constraints:
 
     !scala
     object Version {
       def validDigit(digit: Int):
         Validation[String, Int] = ...
 
-      def validate(major: Int, minor: Int) =
-        (validDigit(major).toValidationNel |@| // huh?
-         validDigit(minor).toValidationNel) {  // huh?
-          Version(_, _)                    // huh?
+      // WAT?
+      def validate(major: Int, minor: Int):
+        ValidationNel[String, Version] =
+        (validDigit(major).toValidationNel |@|
+         validDigit(minor).toValidationNel) {
+          Version(_, _)
         }
     }
 
@@ -374,13 +415,11 @@ Let's break down `validDigit(major).toValidationNel`:
     // Validation[String, Int]
 
     validDigit(major).toValidationNel
-    //   lift = do stuff inside
-    //   fail = only work on the failure side
-    //   nel  = NonEmptyList
     // Validation[NonEmptyList[String], Int]
 
-    type ValidationNEL[X, A] =
-      Validation[NonEmptyList[X], A]
+    // "Nel" = NonEmptyList
+    type ValidationNel[E, A] =
+      Validation[NonEmptyList[E], A]
 
 ---
 
@@ -389,35 +428,37 @@ Let's break down `validDigit(major).toValidationNel`:
     !scala
     val maj = validDigit(major).toValidationNel
     val min = validDigit(minor).toValidationNel
-    // Both ValidationNEL[String, Int]
+    // Both ValidationNel[String, Int]
     //                            ^^^
 
     val mkVersion = Version(_, _)
     // (Int, Int) => Version
 
     val version = (maj |@| min) { mkVersion }
-    // ValidationNEL[String, Version]
+    // ValidationNel[String, Version]
     //                       ^^^^^^^
 
 ---
 
 # Domain Validation
 
-The general form of combining `ValidationNEL`:
+The general form of combining `ValidationNel`:
 
     !scala
-    (ValidationNEL[X, A] |@|
-     ValidationNEL[X, B]) {
+    (ValidationNel[E, A] |@|
+     ValidationNel[E, B]) {
       (A, B) => C
-    } // ValidationNEL[X, C]
+    } // ValidationNel[E, C]
 
-    (ValidationNEL[X, A] |@|
-     ValidationNEL[X, B] |@|
-     ValidationNEL[X, C]) {
+    (ValidationNel[E, A] |@|
+     ValidationNel[E, B] |@|
+     ValidationNel[E, C]) {
       (A, B, C) => D
-    } // ValidationNEL[X, D]
+    } // ValidationNel[E, D]
 
     // etc.
+
+Talk to Lars about the new way to do this via `HList`.
 
 ---
 
@@ -436,7 +477,7 @@ The "rules":
     NonEmptyList("foo") |+| NonEmptyList("bar")
     // NonEmptyList("foo", "bar")
 
-    // |+|? "appends" things according to rules
+    // |+| "appends" things according to "the rules"
 
 ---
 
@@ -444,11 +485,11 @@ The "rules":
 
 An improvement?
 
- * Pro: `Validation`/`Success`/`Failure` is nicer than `try`/`catch` or `Either`/`Left`/`Right`.
- * Pro: Each rule is just a function producing a `Validation`.
- * Pro: Rules can be composed together into new validations, of differing types.
- * Pro: Composed rules accumulate all the errors vs. failing fast.
- * Con: `toValidationNel`, `|@|`, etc., is incomprehensible if you're not familiar.
+ * Pro: `Validation` is **more appropriate** than `Try` or `Either`/`Left`/`Right`.
+ * Pro: Each rule is **just a function** producing a `Validation`.
+ * Pro: Rules can be **composed** together into new validations, of differing types.
+ * Pro: Composed rules **accumulate** all the errors vs. failing fast.
+ * Con: `toValidationNel`, `|@|`, etc., is **incomprehensible** if you're not familiar.
 
 Overall:
 
@@ -573,8 +614,15 @@ The `Lens` type encapsulates "getters" and "setters" on another type.
 Lenses _compose_:
 
     !scala
-    val secondFactor =
-      second andThen value andThen factor
+    val secondFactor: Lens[FooNode, Int] =
+      second andThen value andThen factor     /*
+      ^              ^             ^
+      Lens[FooNode, FooNode]       ^
+                     ^             ^
+                     Lens[FooNode, Foo]
+                                   ^
+                                   Lens[Foo, Int]
+                                   */
 
 ---
 
@@ -628,21 +676,17 @@ Lenses _compose_:
 <big><b>scalaz "For the Rest of Us"</b></big> </br>
   </br>
   Adam Rosien <br/>
-  <code>arosien@box.com && adam@rosien.net</code> <br/>
+  <code>adam@rosien.net</code> <br/>
   <br/>
-  <code>@arosien #scalasv #scalaz</code>
+  <code>@arosien #ScalaIO</code>
 </center>
 
-Thank the `scalaz` authors: runarorama, retronym, tmorris and lots others.
+Thank the `scalaz` authors: runarorama, retronym, tmorris, larsh and lots others.
 
 Credits, sources and references:
 
- * This presentation: [arosien/scalaz-base-talk-201208](https://github.com/arosien/scalaz-base-talk-201208)
- * Yuvi Masory, [Scalaz, Monads, Functors and You](http://yuvimasory.com/talks)
- * [scalaz homepage](http://code.google.com/p/scalaz/), [scalaz 6.0.4 source cross-reference](http://scalaz.github.com/scalaz/scalaz-2.9.1-6.0.4/doc.sxr/index.html)
- * [jrwest/learn_you_a_scalaz](https://github.com/jrwest/learn_you_a_scalaz)
- * [debasishg/tryscalaz](https://github.com/debasishg/tryscalaz)
- * Runar Oli, [Dead-Simple Dependency Injection](http://lanyrd.com/2012/nescala/sqygc)
- * Tony Morris, [Dependency Injection Without the Gymnastics](http://phillyemergingtech.com/2012/system/presentations/di-without-the-gymnastics.pdf)
+ * This presentation: [arosien/scala-io-2013-scalaz-talk](https://github.com/arosien/scala-io-2013-scalaz-talk)
+ * `scalaz` homepage: [https://github.com/scalaz/scalaz](https://github.com/scalaz/scalaz)
+ * Eugene Yakota, [Learning Scalaz](http://eed3si9n.com/learning-scalaz)
 
 

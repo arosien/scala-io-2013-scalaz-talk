@@ -45,8 +45,11 @@ object LensExamples {
       (foo, fac) => foo.copy(factor = fac),
       _.factor)
 
-  val secondFactor =
+  val secondFactor: Lens[FooNode, Int] =
     second andThen value andThen factor
+
+  val secondFactor2: Lens[FooNode, Int] =
+    second >=> value >=> factor
 
    /* FooNode(
        Foo("root", 11),
